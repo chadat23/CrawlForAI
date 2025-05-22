@@ -7,7 +7,9 @@ from urllib.parse import urlparse
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 
 # ──────────── CONFIGURATION ────────────
-URL        = "https://ai.pydantic.dev/llms-full.txt"
+# URL        = "https://ai.pydantic.dev/llms-full.txt"
+# URL        = "https://rpstrength.com/sitemap_blogs_1.xml"
+URL        = "https://rpstrength.com/"
 OUTPUT_DIR = "out_chunks"
 SUBFOLDER  = None
 MODEL      = "gemma3:1b-it-qat"
@@ -36,31 +38,37 @@ def ensure_model(model: str):
 
 def summarize_chunk(chunk: str, model: str) -> str:
     """
-    Uses `ollama run <model>` with the prompt piped via stdin.
-    Raises a RuntimeError with guidance if the daemon isn’t reachable.
+    Uses `ollama run <model>` with the prompt piped via stdin,
+    decoding I/O as UTF-8 with replacement to avoid CP1252 errors.
     """
     prompt = (
         "Please provide a 2–4 sentence summary of the following text:\n\n"
         f"{chunk}\n\nSummary:"
     )
-    proc = subprocess.run(
+    # start the process
+    proc = subprocess.Popen(
         ["ollama", "run", model],
-        input=prompt,
-        capture_output=True,
-        text=True
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
     )
+    # send the prompt as UTF-8 bytes
+    out_bytes, err_bytes = proc.communicate(prompt.encode("utf-8"))
+    # decode with replacement
+    out = out_bytes.decode("utf-8", errors="replace")
+    err = err_bytes.decode("utf-8", errors="replace")
+
     if proc.returncode != 0:
-        err = proc.stderr.strip()
         if "could not connect to ollama app" in err:
             print()
             print("❗️  Could not connect to the Ollama daemon.")
             print("   • Make sure you have Ollama installed and running:")
             print("       ollama serve")
-            print("   • If you haven’t pulled the model yet, it will be pulled automatically.")
             print()
             sys.exit(1)
-        raise RuntimeError(f"Ollama error: {err}")
-    return proc.stdout.strip()
+        raise RuntimeError(f"Ollama error: {err.strip()}")
+
+    return out.strip()
 
 async def fetch_markdown(url: str) -> str:
     browser_cfg = BrowserConfig(headless=True)
